@@ -135,6 +135,18 @@ class BuildScript {
 	public static void GenerateBuild(BuildParameters parameters)
 	{
 		PlayerSettings.bundleVersion = parameters.buildVersion;
+
+		// Platform switching - critical for Docker containers that default to LinuxStandalone
+		Debug.Log($"Builder :: Current active build target: {EditorUserBuildSettings.activeBuildTarget}");
+		Debug.Log($"Builder :: Switching to build target: {parameters.buildTarget}");
+
+		EditorUserBuildSettings.SwitchActiveBuildTarget(
+			BuildPipeline.GetBuildTargetGroup(parameters.buildTarget),
+			parameters.buildTarget
+		);
+
+		Debug.Log($"Builder :: Platform switch completed. Active build target: {EditorUserBuildSettings.activeBuildTarget}");
+
 		BuildPlayerOptions buildOptions = parameters.GetBuildOptions();
 
 		PlayerSettings.GetScriptingDefineSymbols(GetBuildTargetGroup(parameters.buildTarget), out string[] defines);

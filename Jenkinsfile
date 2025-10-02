@@ -1,12 +1,12 @@
 pipeline {
     agent {
-        label 'unity-agent-2'  // Unity 2022.1.62f1
+        label 'unity-2022.3.62f1-android-3'
     }
 
     parameters {
         choice(
             name: 'BUILD_TARGET',
-            choices: ['Android', 'WebGL', 'Both'],
+            choices: ['Android', 'WebGL'],
             description: 'Platform to build for'
         )
         booleanParam(
@@ -38,9 +38,9 @@ pipeline {
 
     environment {
         UNITY_PROJECT_PATH = "${WORKSPACE}"
-        UNITY_EMAIL = credentials('unity-email')
-        UNITY_PASSWORD = credentials('unity-password')
-        UNITY_SERIAL = credentials('unity-serial')
+        UNITY_EMAIL = credentials('tga-unity-email')
+        UNITY_PASSWORD = credentials('tga-unity-password')
+        UNITY_SERIAL = credentials('tga-unity-serial')
     }
 
     stages {
@@ -48,16 +48,6 @@ pipeline {
             steps {
                 echo "Checking out Unity 6 project..."
                 checkout scm
-            }
-        }
-
-        stage('Debug Credentials') {
-            steps {
-                echo "🔍 Verifying Unity credentials are loaded..."
-                echo "Unity Email: ${UNITY_EMAIL}"
-                echo "Unity Serial: ${UNITY_SERIAL}"
-                echo "Unity Password: [MASKED - Jenkins will hide this automatically]"
-                echo "Environment variables set for GameCI activation"
             }
         }
 
@@ -75,10 +65,7 @@ pipeline {
 
         stage('Build Android') {
             when {
-                anyOf {
-                    expression { params.BUILD_TARGET == 'Android' }
-                    expression { params.BUILD_TARGET == 'Both' }
-                }
+                expression { params.BUILD_TARGET == 'Android' }
             }
             steps {
                 script {
@@ -88,16 +75,20 @@ pipeline {
 
                     sh """
                         set -x
-                        echo "🚀 Starting Android build..."
+                        echo "🚀 Starting Android build with JIT bypass..."
                         echo "Build Version: ${buildVersion}"
                         echo "Build Suffix: ${buildSuffix}"
                         echo "Commit Hash: ${commitHash}"
                         echo "Development Build: ${params.DEVELOPMENT_BUILD}"
                         echo "Generate Addressables: ${params.GENERATE_ADDRESSABLES}"
+                        echo "⚠️  Using Mono interpreter mode to bypass JIT crashes"
+
+                        export MONO_ENV_OPTIONS="--interpreter"
 
                         unity-editor \\
                             -batchmode \\
                             -quit \\
+                            -nographics \\
                             -projectPath "${UNITY_PROJECT_PATH}" \\
                             -executeMethod BuildScript.BuildBatchMode \\
                             -logFile /dev/stdout \\
@@ -106,8 +97,15 @@ pipeline {
                             -buildSuffix "${buildSuffix}" \\
                             -commitHash "${commitHash}" \\
                             -buildId "${BUILD_NUMBER}" \\
+                            -buildOutputPath "Builds" \\
                             -generateAddressables ${params.GENERATE_ADDRESSABLES} \\
-                            -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee android-build.log || echo "Unity build completed with exit code \$?"
+                            -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee android-build.log
+
+                        UNITY_EXIT_CODE=\${PIPESTATUS[0]}
+                        if [ \$UNITY_EXIT_CODE -ne 0 ]; then
+                            echo "❌ Unity build failed with exit code \$UNITY_EXIT_CODE"
+                            exit \$UNITY_EXIT_CODE
+                        fi
                     """
                 }
             }
@@ -115,10 +113,7 @@ pipeline {
 
         stage('Build WebGL') {
             when {
-                anyOf {
-                    expression { params.BUILD_TARGET == 'WebGL' }
-                    expression { params.BUILD_TARGET == 'Both' }
-                }
+                expression { params.BUILD_TARGET == 'WebGL' }
             }
             steps {
                 script {
@@ -128,16 +123,20 @@ pipeline {
 
                     sh """
                         set -x
-                        echo "🌐 Starting WebGL build..."
+                        echo "🌐 Starting WebGL build with JIT bypass..."
                         echo "Build Version: ${buildVersion}"
                         echo "Build Suffix: ${buildSuffix}"
                         echo "Commit Hash: ${commitHash}"
                         echo "Development Build: ${params.DEVELOPMENT_BUILD}"
                         echo "Generate Addressables: ${params.GENERATE_ADDRESSABLES}"
+                        echo "⚠️  Using Mono interpreter mode to bypass JIT crashes"
+
+                        export MONO_ENV_OPTIONS="--interpreter"
 
                         unity-editor \\
                             -batchmode \\
                             -quit \\
+                            -nographics \\
                             -projectPath "${UNITY_PROJECT_PATH}" \\
                             -executeMethod BuildScript.BuildBatchMode \\
                             -logFile /dev/stdout \\
@@ -146,8 +145,15 @@ pipeline {
                             -buildSuffix "${buildSuffix}" \\
                             -commitHash "${commitHash}" \\
                             -buildId "${BUILD_NUMBER}" \\
+                            -buildOutputPath "Builds" \\
                             -generateAddressables ${params.GENERATE_ADDRESSABLES} \\
-                            -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee webgl-build.log || echo "Unity build completed with exit code \$?"
+                            -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee webgl-build.log
+
+                        UNITY_EXIT_CODE=\${PIPESTATUS[0]}
+                        if [ \$UNITY_EXIT_CODE -ne 0 ]; then
+                            echo "❌ Unity build failed with exit code \$UNITY_EXIT_CODE"
+                            exit \$UNITY_EXIT_CODE
+                        fi
                     """
                 }
             }

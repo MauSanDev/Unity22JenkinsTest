@@ -18,7 +18,7 @@ public class BuilderEditor : EditorWindow
     private string buildSuffix = null;
     private bool generateAddressableAssets = true;
     private bool developmentBuild = false;
-    private string buildDirectory = null;
+    private string buildOutputPath = null;
     private bool saveBuildReport = true;
     private bool debugMode = true;
     private IBuildPlatformSettings platformSettings = null;
@@ -29,7 +29,7 @@ public class BuilderEditor : EditorWindow
     {
         buildTarget = BuildTarget.Android;
         platformSettings = new AndroidParameters();
-        buildDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Builds");
+        buildOutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Builds");
         buildVersion = PlayerSettings.bundleVersion;
     }
 
@@ -76,7 +76,7 @@ public class BuilderEditor : EditorWindow
         saveBuildReport = false;
         if (platformSettings is AndroidParameters androidParameters)
         {
-            androidParameters.androidSymbols = AndroidCreateSymbols.Disabled;
+            androidParameters.targetArchitectures = AndroidArchitecture.ARM64;
             androidParameters.generateAab = false;
         }
     }
@@ -91,10 +91,11 @@ public class BuilderEditor : EditorWindow
         saveBuildReport = false;
         if (platformSettings is AndroidParameters androidParameters)
         {
-            androidParameters.androidSymbols = AndroidCreateSymbols.Disabled;
+            androidParameters.targetArchitectures = AndroidArchitecture.ARM64;
             androidParameters.generateAab = false;
         }
     }
+
     private void SetReleasePreset()
     {
         debugMode = false;
@@ -103,7 +104,7 @@ public class BuilderEditor : EditorWindow
         saveBuildReport = true;
         if (platformSettings is AndroidParameters androidParameters)
         {
-            androidParameters.androidSymbols = AndroidCreateSymbols.Public;
+            androidParameters.targetArchitectures = AndroidArchitecture.ARM64;
             androidParameters.generateAab = true;
         }
     }
@@ -130,10 +131,10 @@ public class BuilderEditor : EditorWindow
         debugMode = EditorGUILayout.Toggle("Debug Mode", debugMode);
 
         EditorGUILayout.BeginHorizontal();
-        buildDirectory = EditorGUILayout.TextField("Build Directory", buildDirectory);
+        buildOutputPath = EditorGUILayout.TextField("Build Output Path", buildOutputPath);
         if (GUILayout.Button("Select", GUILayout.Width(100)))
         {
-            buildDirectory = EditorUtility.OpenFolderPanel("Select Directory for the Build", "", "");
+            buildOutputPath = EditorUtility.OpenFolderPanel("Select Directory for the Build", "", "");
         }
         EditorGUILayout.EndHorizontal();
 
@@ -156,7 +157,7 @@ public class BuilderEditor : EditorWindow
         {
             buildTarget = buildTarget,
             buildVersion = buildVersion,
-            buildDirectory = buildDirectory,
+            buildOutputPath = buildOutputPath,
             buildSuffix = buildSuffix,
             buildIdentifier = "local" + ToEpoch(DateTime.Now),
             isDevelopmentBuild = developmentBuild,
@@ -190,9 +191,9 @@ public interface IBuildPlatformSettings
 [Serializable]
 public class AndroidParameters : IBuildPlatformSettings
 {
-    public AndroidCreateSymbols androidSymbols = AndroidCreateSymbols.Public;
+    public AndroidArchitecture targetArchitectures = AndroidArchitecture.ARM64;
     public bool generateAab = false;
-    
+
     public void OnGUI()
     {
         EditorGUILayout.BeginVertical("HelpBox");
@@ -204,7 +205,7 @@ public class AndroidParameters : IBuildPlatformSettings
         }
         EditorGUILayout.EndHorizontal();
 
-        androidSymbols = (AndroidCreateSymbols)EditorGUILayout.EnumPopup("Export Symbols", androidSymbols);
+        targetArchitectures = (AndroidArchitecture)EditorGUILayout.EnumPopup("Target Architectures", targetArchitectures);
         generateAab = EditorGUILayout.Toggle("Generate AAB", generateAab);
         
         EditorGUILayout.Space(3);
@@ -230,7 +231,7 @@ public class AndroidParameters : IBuildPlatformSettings
 
     public void ApplyPlatformModifiers()
     {
-        EditorUserBuildSettings.androidCreateSymbols = androidSymbols;
+        PlayerSettings.Android.targetArchitectures = targetArchitectures;
         EditorUserBuildSettings.buildAppBundle = generateAab;
         PlayerSettings.Android.bundleVersionCode = VersionCode;
         PlayerSettings.Android.useCustomKeystore = generateAab;
@@ -274,7 +275,7 @@ public struct BuildParameters
     public string buildSuffix;
     public bool generateAddressables;
     public bool isDevelopmentBuild;
-    public string buildDirectory;
+    public string buildOutputPath;
     public string buildIdentifier;
     public IBuildPlatformSettings platformSpecificSettings;
     public bool saveBuildReport;
@@ -287,7 +288,7 @@ public struct BuildParameters
             - Version: {buildVersion} \n
             - Target: {buildTarget} |n
             - Suffix: {buildSuffix} \n
-            - Directory: {buildDirectory} \n
+            - Output Path: {buildOutputPath} \n
             - Development: {isDevelopmentBuild} \n
             - Addressables: {generateAddressables} \n";
     }
@@ -300,14 +301,28 @@ public struct BuildParameters
         buildOptions.target = buildTarget;
         buildOptions.options = isDevelopmentBuild ? BuildOptions.Development : BuildOptions.None;
         buildOptions.locationPathName = Path.Combine(GetBuildDirectory(), GetBuildName(true));
-        platformSpecificSettings.ApplyTo(buildOptions);
+
+        if (platformSpecificSettings != null)
+        {
+            platformSpecificSettings.ApplyTo(buildOptions);
+        }
+
         return buildOptions;
     }
 
     public string GetBuildDirectory()
     {
-        string intermediateFolder = isDevelopmentBuild ? "Development" : debugMode ? "QA" : "Release";
-        return Path.Combine(buildDirectory, intermediateFolder, GetBuildName(false));
+        string intermediateFolder = isDevelopmentBuild ? BuildScript.FolderDevelopment : debugMode ? BuildScript.FolderQA : BuildScript.FolderRelease;
+        string buildDirectory = Path.Combine(buildOutputPath, intermediateFolder, GetBuildName(false));
+
+        // Create directory if it doesn't exist (creates all nested folders)
+        if (!Directory.Exists(buildDirectory))
+        {
+            Directory.CreateDirectory(buildDirectory);
+            Debug.Log($"Builder :: Created build directory: {buildDirectory}");
+        }
+
+        return buildDirectory;
     }
 
     public string GetBuildName(bool includeExtension)
@@ -317,10 +332,10 @@ public struct BuildParameters
         string suffix = !string.IsNullOrEmpty(buildSuffix) ? "_" + buildSuffix : string.Empty;
         string development = isDevelopmentBuild ? "_DEVELOPMENT" : string.Empty;
         string commit = !string.IsNullOrEmpty(buildIdentifier) ? "_" + buildIdentifier : string.Empty;
-        string extension = platformSpecificSettings.GetExtension();
+        string extension = platformSpecificSettings?.GetExtension() ?? string.Empty;
 
         string buildName = $"{productName}_{version}{suffix}{development}{commit}";
-        if (includeExtension)
+        if (includeExtension && !string.IsNullOrEmpty(extension))
         {
             buildName += extension;
         }

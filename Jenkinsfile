@@ -1,6 +1,6 @@
 pipeline {
     agent {
-        label 'unity-2022.3.62f1-android-3'
+        label 'unity-6000.2.5f1-android-3'  // Unity 6000.0.58f1 with complete Android image
     }
 
     parameters {
@@ -101,11 +101,26 @@ pipeline {
                             -generateAddressables ${params.GENERATE_ADDRESSABLES} \\
                             -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee android-build.log
 
-                        UNITY_EXIT_CODE=\${PIPESTATUS[0]}
-                        if [ \$UNITY_EXIT_CODE -ne 0 ]; then
-                            echo "❌ Unity build failed with exit code \$UNITY_EXIT_CODE"
-                            exit \$UNITY_EXIT_CODE
+                        # Check build success via BuildParameters.json
+                        echo "🔍 Checking build success status..."
+                        BUILD_PARAMS_FILE=\$(find Builds -name "BuildParameters.json" -type f | head -n 1)
+
+                        if [ -z "\$BUILD_PARAMS_FILE" ]; then
+                            echo "❌ Build failed: BuildParameters.json not found"
+                            exit 1
                         fi
+
+                        echo "Found BuildParameters.json at: \$BUILD_PARAMS_FILE"
+
+                        BUILD_SUCCESS=\$(grep -o '"buildSuccess"[[:space:]]*:[[:space:]]*true' "\$BUILD_PARAMS_FILE")
+
+                        if [ -z "\$BUILD_SUCCESS" ]; then
+                            echo "❌ Build failed: buildSuccess is false or not found in BuildParameters.json"
+                            cat "\$BUILD_PARAMS_FILE"
+                            exit 1
+                        fi
+
+                        echo "✅ Build succeeded according to BuildParameters.json"
                     """
                 }
             }
@@ -149,11 +164,26 @@ pipeline {
                             -generateAddressables ${params.GENERATE_ADDRESSABLES} \\
                             -developmentBuild ${params.DEVELOPMENT_BUILD} 2>&1 | tee webgl-build.log
 
-                        UNITY_EXIT_CODE=\${PIPESTATUS[0]}
-                        if [ \$UNITY_EXIT_CODE -ne 0 ]; then
-                            echo "❌ Unity build failed with exit code \$UNITY_EXIT_CODE"
-                            exit \$UNITY_EXIT_CODE
+                        # Check build success via BuildParameters.json
+                        echo "🔍 Checking build success status..."
+                        BUILD_PARAMS_FILE=\$(find Builds -name "BuildParameters.json" -type f | head -n 1)
+
+                        if [ -z "\$BUILD_PARAMS_FILE" ]; then
+                            echo "❌ Build failed: BuildParameters.json not found"
+                            exit 1
                         fi
+
+                        echo "Found BuildParameters.json at: \$BUILD_PARAMS_FILE"
+
+                        BUILD_SUCCESS=\$(grep -o '"buildSuccess"[[:space:]]*:[[:space:]]*true' "\$BUILD_PARAMS_FILE")
+
+                        if [ -z "\$BUILD_SUCCESS" ]; then
+                            echo "❌ Build failed: buildSuccess is false or not found in BuildParameters.json"
+                            cat "\$BUILD_PARAMS_FILE"
+                            exit 1
+                        fi
+
+                        echo "✅ Build succeeded according to BuildParameters.json"
                     """
                 }
             }
